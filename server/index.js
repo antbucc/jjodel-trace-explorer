@@ -57,7 +57,10 @@ app.get('*', (req, res, next) => {
 const port = Number(process.env.PORT || 8080)
 const host = '0.0.0.0'
 
+console.log('PORT env =', process.env.PORT)
+console.log('NUXMV_PATH =', process.env.NUXMV_PATH)
+
 app.listen(port, host, () => {
   console.log(`Server listening on http://${host}:${port}`)
-  console.log(`Health endpoint available at /api/health`)
+  console.log('Health endpoint available at /api/health')
 })

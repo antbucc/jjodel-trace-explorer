@@ -1,4 +1,3 @@
-# ---------- build frontend ----------
 FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
@@ -9,7 +8,6 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-# ---------- runtime ----------
 FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
