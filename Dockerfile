@@ -14,20 +14,21 @@ FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
 
-# Runtime packages commonly needed by prebuilt Linux binaries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     xz-utils \
     libgmp10 \
     libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and install nuXmv Linux binary
+# Download and install nuXmv
 RUN mkdir -p /opt/nuxmv \
-    && curl -L "https://nuxmv.fbk.eu/theme/download.php?file=nuXmv-2.1.0-linux64.tar.xz" -o /tmp/nuxmv.tar.xz \
+    && curl -fL "https://nuxmv.fbk.eu/theme/download.php?file=nuXmv-2.1.0-linux64.tar.xz" -o /tmp/nuxmv.tar.xz \
     && tar -xJf /tmp/nuxmv.tar.xz -C /opt/nuxmv --strip-components=1 \
     && rm /tmp/nuxmv.tar.xz \
-    && chmod +x /opt/nuxmv/bin/nuXmv
+    && chmod +x /opt/nuxmv/bin/nuXmv \
+    && /opt/nuxmv/bin/nuXmv || true
 
 ENV NUXMV_PATH=/opt/nuxmv/bin/nuXmv
 ENV NODE_ENV=production
