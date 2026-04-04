@@ -4,17 +4,22 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 3000",
+    "dev:client": "vite --host 0.0.0.0 --port 3000",
+    "dev:server": "node --watch server/index.js",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 3000"
+    "start": "node server/index.js"
   },
   "dependencies": {
     "@xyflow/react": "^12.8.6",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.1.2",
     "vite": "^7.0.0"
   }
 }

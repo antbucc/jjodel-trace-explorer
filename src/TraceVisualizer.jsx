@@ -1,129 +1,16 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ReactFlow,
   Background,
   Controls,
-  MiniMap,
+  Handle,
   MarkerType,
-  Panel,
+  MiniMap,
+  Position,
+  ReactFlow,
   useEdgesState,
   useNodesState,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-
-function parseNuXmvTrace(traceText) {
-  const lines = traceText.split(/\r?\n/)
-  const states = []
-  let current = null
-
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd()
-
-    const stateMatch = line.match(/^\s*->\s*State:\s*([\d.]+)\s*<-$|^\s*State:\s*([\d.]+)\s*$/i)
-    if (stateMatch) {
-      if (current) states.push(current)
-      current = {
-        id: stateMatch[1] || stateMatch[2],
-        vars: [],
-      }
-      continue
-    }
-
-    if (!current) continue
-    if (!line.trim()) continue
-    if (/^\*{2,}/.test(line)) continue
-    if (/^Trace /i.test(line)) continue
-    if (/^-- /.test(line)) continue
-
-    const varMatch = line.match(/^\s*([^=]+?)\s*=\s*(.+)\s*$/)
-    if (varMatch) {
-      current.vars.push({
-        name: varMatch[1].trim(),
-        value: varMatch[2].trim(),
-      })
-    }
-  }
-
-  if (current) states.push(current)
-
-  return states
-}
-
-function buildGraph(states) {
-  const spacingX = 310
-  const spacingY = 120
-
-  const nodes = states.map((state, index) => ({
-    id: state.id,
-    position: {
-      x: index * spacingX,
-      y: index % 2 === 0 ? 40 : spacingY,
-    },
-    data: state,
-    type: 'stateNode',
-  }))
-
-  const edges = states.slice(0, -1).map((state, index) => ({
-    id: `e-${state.id}-${states[index + 1].id}`,
-    source: state.id,
-    target: states[index + 1].id,
-    type: 'smoothstep',
-    animated: true,
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-    },
-    label: `${state.id} → ${states[index + 1].id}`,
-    style: {
-      strokeWidth: 2,
-    },
-    labelStyle: {
-      fontSize: 12,
-      fontWeight: 600,
-    },
-  }))
-
-  return { nodes, edges }
-}
-
-function exportJson(parsedStates) {
-  const blob = new Blob([JSON.stringify(parsedStates, null, 2)], {
-    type: 'application/json',
-  })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'nuxmv-trace.json'
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function exportDot(parsedStates) {
-  const lines = [
-    'digraph nuXmvTrace {',
-    '  rankdir=LR;',
-    '  node [shape=box, style="rounded,filled", fillcolor="#f8fafc", color="#94a3b8"];'
-  ]
-
-  parsedStates.forEach((state) => {
-    const vars = state.vars.map((item) => `${item.name} = ${item.value}`).join('\\n')
-    const label = `State ${state.id}${vars ? `\\n${vars}` : ''}`.replace(/"/g, '\\"')
-    lines.push(`  "${state.id}" [label="${label}"];`)
-  })
-
-  for (let i = 0; i < parsedStates.length - 1; i += 1) {
-    lines.push(`  "${parsedStates[i].id}" -> "${parsedStates[i + 1].id}";`)
-  }
-
-  lines.push('}')
-
-  const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'nuxmv-trace.dot'
-  a.click()
-  URL.revokeObjectURL(url)
-}
 
 function readFileAsText(file) {
   return new Promise((resolve, reject) => {
@@ -134,182 +21,753 @@ function readFileAsText(file) {
   })
 }
 
+function statesFromCounterexample(counterexample) {
+  if (!counterexample?.states) return []
+  return counterexample.states.map((state) => ({
+    id: state.id,
+    vars: Object.entries(state.variables || {}).map(([name, value]) => ({
+      name,
+      value: String(value),
+    })),
+  }))
+}
+
+function varsToMap(state) {
+  return Object.fromEntries(state.vars.map((item) => [item.name, item.value]))
+}
+
+function changedVariables(prevState, nextState) {
+  if (!prevState || !nextState) return []
+
+  const prev = varsToMap(prevState)
+  const next = varsToMap(nextState)
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)])
+  const changed = []
+
+  keys.forEach((key) => {
+    if (prev[key] !== next[key]) {
+      changed.push({
+        name: key,
+        from: prev[key] ?? 'undefined',
+        to: next[key] ?? 'undefined',
+      })
+    }
+  })
+
+  return changed
+}
+
+function buildGraph(states) {
+  const nodes = states.map((state, index) => ({
+    id: state.id,
+    type: 'stateNode',
+    position: { x: index * 330, y: 120 + (index % 2) * 40 },
+    data: state,
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
+  }))
+
+  const edges = states.slice(0, -1).map((state, index) => {
+    const nextState = states[index + 1]
+    const changes = changedVariables(state, nextState)
+
+    return {
+      id: `e-${state.id}-${nextState.id}`,
+      source: state.id,
+      target: nextState.id,
+      type: 'smoothstep',
+      animated: true,
+      markerEnd: { type: MarkerType.ArrowClosed },
+      style: { stroke: '#4f46e5', strokeWidth: 4 },
+      label: changes.length ? `${changes.length} change${changes.length > 1 ? 's' : ''}` : 'No changes',
+      labelStyle: { fontSize: 12, fontWeight: 700, fill: '#312e81' },
+      labelBgStyle: { fill: '#ffffff', fillOpacity: 0.96, stroke: '#cbd5e1' },
+      labelBgPadding: [8, 4],
+      labelBgBorderRadius: 999,
+      data: { changes },
+      zIndex: 1000,
+    }
+  })
+
+  return { nodes, edges }
+}
+
 function StateNode({ data }) {
   return (
-    <div className="state-node">
-      <div className="state-node-header">
-        <div className="state-node-title">State {data.id}</div>
-        <div className="badge">{data.vars.length} vars</div>
+    <div
+      style={{
+        minWidth: 230,
+        maxWidth: 270,
+        background: '#fff',
+        border: '2px solid #cbd5e1',
+        borderRadius: 18,
+        padding: 12,
+        boxShadow: '0 8px 18px rgba(15,23,42,0.08)',
+      }}
+    >
+      <Handle type="target" position={Position.Left} style={{ width: 10, height: 10, background: '#4f46e5' }} />
+      <Handle type="source" position={Position.Right} style={{ width: 10, height: 10, background: '#4f46e5' }} />
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>State {data.id}</div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>Execution snapshot</div>
+        </div>
+        <div
+          style={{
+            borderRadius: 999,
+            background: '#eef2ff',
+            color: '#4338ca',
+            padding: '4px 8px',
+            fontSize: 11,
+            fontWeight: 800,
+          }}
+        >
+          {data.vars.length} vars
+        </div>
       </div>
 
-      <div className="var-list">
-        {data.vars.length === 0 ? (
-          <div className="empty-note">No variables parsed</div>
-        ) : (
-          data.vars.map((item, index) => (
-            <div className="var-row" key={`${data.id}-${item.name}-${index}`}>
-              <span className="var-name">{item.name}</span>
-              <span className="var-sep">=</span>
-              <span>{item.value}</span>
-            </div>
-          ))
-        )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {data.vars.map((item) => (
+          <div
+            key={`${data.id}-${item.name}`}
+            style={{
+              borderRadius: 12,
+              background: '#f8fafc',
+              padding: '8px 10px',
+              fontSize: 12,
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <span style={{ fontWeight: 700 }}>{item.name}</span>
+            <span style={{ color: '#94a3b8', margin: '0 6px' }}>=</span>
+            <span>{item.value}</span>
+          </div>
+        ))}
       </div>
     </div>
   )
 }
 
-const nodeTypes = {
-  stateNode: StateNode,
-}
-
-const sampleTrace = `-- specification AG p is false
--- as demonstrated by the following execution sequence
-Trace Description: CTL Counterexample
-Trace Type: Counterexample
--> State: 1.1 <-
-  mode = monitor
-  battery = low
-  action = none
-  score = 0
--> State: 1.2 <-
-  mode = analyze
-  battery = low
-  action = replan
-  score = 5
--> State: 1.3 <-
-  mode = plan
-  battery = low
-  action = reduce_speed
-  score = 10
--> State: 1.4 <-
-  mode = execute
-  battery = medium
-  action = apply_plan
-  score = 10`
+const nodeTypes = { stateNode: StateNode }
 
 export default function TraceVisualizer() {
-  const [traceText, setTraceText] = useState(sampleTrace)
+  const [smvText, setSmvText] = useState('')
+  const [smvFileName, setSmvFileName] = useState('No model loaded')
+  const [report, setReport] = useState(null)
+  const [isChecking, setIsChecking] = useState(false)
+  const [checkFeedback, setCheckFeedback] = useState('Load an SMV model and run checking.')
+  const [propertyFilter, setPropertyFilter] = useState('all')
+  const [selectedPropertyId, setSelectedPropertyId] = useState(null)
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null)
+  const [selectedStateId, setSelectedStateId] = useState(null)
 
-  const parsedStates = useMemo(() => parseNuXmvTrace(traceText), [traceText])
-  const graph = useMemo(() => buildGraph(parsedStates), [parsedStates])
+  const filteredProperties = useMemo(() => {
+    if (!report) return []
+    if (propertyFilter === 'all') return report.properties
+    return report.properties.filter((property) => property.status === propertyFilter)
+  }, [report, propertyFilter])
 
+  const selectedProperty = useMemo(() => {
+    if (!report) return null
+    return report.properties.find((property) => property.id === selectedPropertyId) ?? null
+  }, [report, selectedPropertyId])
+
+  const traceStates = useMemo(
+    () => statesFromCounterexample(selectedProperty?.counterexample),
+    [selectedProperty]
+  )
+
+  const graph = useMemo(() => buildGraph(traceStates), [traceStates])
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
 
-  const refreshGraph = useCallback(() => {
+  useEffect(() => {
     setNodes(graph.nodes)
     setEdges(graph.edges)
+    setSelectedStateId(graph.nodes[0]?.id ?? null)
+    setSelectedEdgeId(graph.edges[0]?.id ?? null)
   }, [graph, setNodes, setEdges])
 
-  const handleLoadSample = useCallback(() => {
-    setTraceText(sampleTrace)
-  }, [])
+  const selectedState = useMemo(
+    () => traceStates.find((state) => state.id === selectedStateId) ?? null,
+    [traceStates, selectedStateId]
+  )
 
-  const handleClear = useCallback(() => {
-    setTraceText('')
-    setNodes([])
-    setEdges([])
-  }, [setNodes, setEdges])
+  const selectedEdge = useMemo(
+    () => edges.find((edge) => edge.id === selectedEdgeId) ?? null,
+    [edges, selectedEdgeId]
+  )
 
-  const handleFileUpload = useCallback(async (event) => {
+  const traceSteps = useMemo(() => {
+    return traceStates.map((state, index) => ({
+      state,
+      nextState: traceStates[index + 1] ?? null,
+      changes: traceStates[index + 1] ? changedVariables(state, traceStates[index + 1]) : [],
+    }))
+  }, [traceStates])
+
+  const handleSmvUpload = useCallback(async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
     const text = await readFileAsText(file)
-    setTraceText(text)
+    setSmvText(text)
+    setSmvFileName(file.name)
+    setReport(null)
+    setSelectedPropertyId(null)
+    setCheckFeedback(`Loaded model: ${file.name}`)
   }, [])
 
-  const changedVariables = useMemo(() => {
-    const all = new Set()
-    for (let i = 1; i < parsedStates.length; i += 1) {
-      const prev = Object.fromEntries(parsedStates[i - 1].vars.map((v) => [v.name, v.value]))
-      const curr = Object.fromEntries(parsedStates[i].vars.map((v) => [v.name, v.value]))
-      const keys = new Set([...Object.keys(prev), ...Object.keys(curr)])
-      keys.forEach((key) => {
-        if (prev[key] !== curr[key]) all.add(key)
-      })
+  const handleRunChecking = useCallback(async () => {
+    if (!smvText.trim()) {
+      setCheckFeedback('Please load an SMV model before running verification.')
+      return
     }
-    return Array.from(all)
-  }, [parsedStates])
+
+    setIsChecking(true)
+    setCheckFeedback('Running formal verification...')
+
+    try {
+      const formData = new FormData()
+      const file = new Blob([smvText], { type: 'text/plain' })
+      formData.append('model', file, smvFileName)
+
+      const response = await fetch('/api/verify', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Verification failed.')
+      }
+
+      setReport(result)
+      setSelectedPropertyId(
+        result.properties.find((property) => property.status === 'failed')?.id ??
+          result.properties[0]?.id ??
+          null
+      )
+      setCheckFeedback('Verification completed. Review the results below.')
+    } catch (error) {
+      setCheckFeedback(error.message || 'Verification failed.')
+    } finally {
+      setIsChecking(false)
+    }
+  }, [smvFileName, smvText])
+
+  const handleExportReport = useCallback(() => {
+    if (!report) return
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'verification-report.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [report])
+
+  const summary = report?.summary ?? { totalProperties: 0, passed: 0, failed: 0 }
+  const hasFailedProperties = report?.properties?.some((property) => property.status === 'failed') ?? false
 
   return (
-    <div className="app-shell">
-      <div className="layout">
-        <section className="panel">
-          <h1 className="title">Jjodel Trace Explorer</h1>
-          <p className="subtitle">
-            Visualizzatore di trace di verifica formale per modelli Jjodel e output nuXmv.
+    <div
+      style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)',
+        padding: 24,
+        color: '#0f172a',
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1700,
+          margin: '0 auto 20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 20,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div>
+          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800 }}>Jjodel Verification Explorer</h1>
+          <p style={{ margin: '8px 0 0', color: '#475569', fontSize: 14 }}>
+            Load an SMV model, run formal checking, and inspect passed properties, failed properties,
+            and counterexamples with clear visual feedback.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <label
+            style={{
+              borderRadius: 14,
+              background: '#e2e8f0',
+              color: '#0f172a',
+              padding: '10px 14px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            Load SMV model
+            <input type="file" accept=".smv,.txt" hidden onChange={handleSmvUpload} />
+          </label>
+
+          <button
+            onClick={handleRunChecking}
+            disabled={isChecking}
+            style={{
+              border: 0,
+              borderRadius: 14,
+              background: '#4f46e5',
+              color: '#fff',
+              padding: '10px 14px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              opacity: isChecking ? 0.7 : 1,
+            }}
+          >
+            {isChecking ? 'Checking...' : 'Run checking'}
+          </button>
+
+          <button
+            onClick={handleExportReport}
+            disabled={!report}
+            style={{
+              border: 0,
+              borderRadius: 14,
+              background: '#0f172a',
+              color: '#fff',
+              padding: '10px 14px',
+              fontWeight: 700,
+              cursor: report ? 'pointer' : 'not-allowed',
+              opacity: report ? 1 : 0.5,
+            }}
+          >
+            Export report
+          </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          maxWidth: 1700,
+          margin: '0 auto 18px',
+          border: '1px solid #e2e8f0',
+          background: '#fff',
+          borderRadius: 18,
+          padding: 14,
+          boxShadow: '0 10px 30px rgba(15,23,42,0.06)',
+        }}
+      >
+        <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b' }}>
+          Status
+        </div>
+        <div style={{ marginTop: 6, fontSize: 14, fontWeight: 700 }}>{checkFeedback}</div>
+      </div>
+
+      <div
+        style={{
+          maxWidth: 1700,
+          margin: '0 auto',
+          display: 'grid',
+          gridTemplateColumns: '380px minmax(780px, 1fr) 300px',
+          gap: 20,
+        }}
+      >
+        <section
+          style={{
+            background: 'rgba(255,255,255,0.96)',
+            border: '1px solid #e2e8f0',
+            borderRadius: 24,
+            padding: 20,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Input model</h2>
+          <p style={{ margin: '8px 0 0', color: '#475569', fontSize: 13 }}>
+            The SMV model is loaded from file and displayed here exactly as submitted.
           </p>
 
-          <textarea
-            className="textarea"
-            value={traceText}
-            onChange={(e) => setTraceText(e.target.value)}
-            placeholder="Paste nuXmv trace here..."
-          />
-
-          <div className="toolbar">
-            <button className="btn btn-primary" onClick={refreshGraph}>Parse trace</button>
-            <button className="btn btn-secondary" onClick={handleLoadSample}>Load sample</button>
-            <button className="btn btn-secondary" onClick={handleClear}>Clear</button>
-            <button className="btn btn-dark" onClick={() => exportJson(parsedStates)}>Export JSON</button>
-            <button className="btn btn-dark" onClick={() => exportDot(parsedStates)}>Export DOT</button>
-            <label className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center' }}>
-              Upload file
-              <input type="file" accept=".txt,.log,.out" onChange={handleFileUpload} style={{ display: 'none' }} />
-            </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
+            {[
+              ['File', smvFileName],
+              ['Source', report?.source ?? 'Jjodel'],
+              ['Engine', report?.engine ?? 'nuXmv'],
+              ['Generated', report?.generatedAt ?? '-'],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}
+              >
+                <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
+                  {label}
+                </div>
+                <div style={{ marginTop: 4, fontSize: 14, fontWeight: 700, wordBreak: 'break-word' }}>{value}</div>
+              </div>
+            ))}
           </div>
 
-          <div className="stats">
-            <div className="stat-card">
-              <div className="stat-label">States</div>
-              <div className="stat-value">{parsedStates.length}</div>
+          <div
+            style={{
+              marginTop: 16,
+              border: '1px solid #dbe3ef',
+              borderRadius: 18,
+              overflow: 'hidden',
+              background: '#0f172a',
+            }}
+          >
+            <div
+              style={{
+                padding: '10px 14px',
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#cbd5e1',
+                background: '#1e293b',
+              }}
+            >
+              {smvFileName}
             </div>
-            <div className="stat-card">
-              <div className="stat-label">Transitions</div>
-              <div className="stat-value">{Math.max(parsedStates.length - 1, 0)}</div>
-            </div>
-          </div>
-
-          <div className="legend">
-            {changedVariables.length === 0 ? (
-              <div className="legend-item">No variable changes detected yet</div>
-            ) : (
-              changedVariables.map((name) => (
-                <div key={name} className="legend-item">Changed: {name}</div>
-              ))
-            )}
-          </div>
-
-          <div className="tip">
-            Formato supportato: <strong>-&gt; State: 1.1 &lt;-</strong> oppure <strong>State: 1.1</strong>, seguite da righe tipo <strong>x = TRUE</strong>.
+            <pre
+              style={{
+                margin: 0,
+                padding: 16,
+                maxHeight: 520,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                color: '#e2e8f0',
+                fontSize: 12,
+                lineHeight: 1.55,
+                fontFamily: 'ui-monospace, Menlo, monospace',
+              }}
+            >
+              {smvText || 'No model loaded.'}
+            </pre>
           </div>
         </section>
 
-        <section className="viewer">
-          <div className="viewer-header">
-            <h2 className="viewer-title">Graph View</h2>
-            <p className="viewer-subtitle">
-              Zoom, pan e mini-map per esplorare trace lunghe.
-            </p>
+        <section
+          style={{
+            background: 'rgba(255,255,255,0.96)',
+            border: '1px solid #e2e8f0',
+            borderRadius: 24,
+            overflow: 'hidden',
+            boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
+          }}
+        >
+          <div style={{ padding: 20, borderBottom: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Verification results</h2>
+                <p style={{ margin: '8px 0 0', color: '#475569', fontSize: 13 }}>
+                  Clear feedback on passing and failing properties, with a focused view on the properties that break the model.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {['all', 'passed', 'failed'].map((value) => (
+                  <button
+                    key={value}
+                    onClick={() => setPropertyFilter(value)}
+                    style={{
+                      border: '1px solid #cbd5e1',
+                      background: propertyFilter === value ? '#eef2ff' : '#fff',
+                      color: propertyFilter === value ? '#312e81' : '#334155',
+                      borderRadius: 999,
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {value.charAt(0).toUpperCase() + value.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 16 }}>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
+                <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
+                  Total properties
+                </div>
+                <div style={{ marginTop: 4, fontSize: 28, fontWeight: 800 }}>{summary.totalProperties}</div>
+              </div>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
+                <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
+                  Passed
+                </div>
+                <div style={{ marginTop: 4, fontSize: 28, fontWeight: 800, color: '#15803d' }}>{summary.passed}</div>
+              </div>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
+                <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
+                  Failed
+                </div>
+                <div style={{ marginTop: 4, fontSize: 28, fontWeight: 800, color: '#b91c1c' }}>{summary.failed}</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
+              {filteredProperties.map((property) => (
+                <button
+                  key={property.id}
+                  onClick={() => setSelectedPropertyId(property.id)}
+                  style={{
+                    border: selectedPropertyId === property.id ? '1px solid #4338ca' : '1px solid #e2e8f0',
+                    boxShadow: selectedPropertyId === property.id ? '0 0 0 3px rgba(67,56,202,0.12)' : 'none',
+                    background: '#fff',
+                    borderRadius: 16,
+                    padding: '10px 12px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <span style={{ fontWeight: 800 }}>{property.id}</span>
+                  <span
+                    style={{
+                      borderRadius: 999,
+                      padding: '5px 10px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      background: property.status === 'passed' ? '#dcfce7' : '#fee2e2',
+                      color: property.status === 'passed' ? '#166534' : '#991b1b',
+                    }}
+                  >
+                    {property.status === 'passed' ? 'Passed' : 'Failed'}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {selectedProperty && (
+              <div
+                style={{
+                  marginTop: 18,
+                  border: `2px solid ${selectedProperty.status === 'failed' ? '#fecaca' : '#bbf7d0'}`,
+                  borderRadius: 18,
+                  background: selectedProperty.status === 'failed' ? '#fff1f2' : '#f0fdf4',
+                  padding: 14,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800 }}>
+                      {selectedProperty.id} — {selectedProperty.type}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 8,
+                        fontFamily: 'ui-monospace, Menlo, monospace',
+                        fontSize: 12,
+                        color: '#1e293b',
+                      }}
+                    >
+                      {selectedProperty.formula}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      borderRadius: 999,
+                      padding: '5px 10px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      background: selectedProperty.status === 'passed' ? '#dcfce7' : '#fee2e2',
+                      color: selectedProperty.status === 'passed' ? '#166534' : '#991b1b',
+                    }}
+                  >
+                    {selectedProperty.status === 'passed' ? 'Passed' : 'Failed'}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 8, fontSize: 13, color: '#475569' }}>{selectedProperty.description}</div>
+
+                {selectedProperty.status === 'failed' && (
+                  <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: '#991b1b' }}>
+                    This property fails. The counterexample below shows how the model reaches a violating execution path.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="flow-wrapper">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              fitView
-            >
-              <MiniMap pannable zoomable />
-              <Controls />
-              <Background />
-              <Panel position="top-right">
-                <div className="legend-item">Interactive trace graph</div>
-              </Panel>
-            </ReactFlow>
+          <div style={{ height: 660, margin: 18, border: '1px solid #e2e8f0', borderRadius: 20, overflow: 'hidden', background: '#fff' }}>
+            {selectedProperty?.status === 'failed' && traceStates.length > 0 ? (
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeClick={(_, node) => setSelectedStateId(node.id)}
+                onEdgeClick={(_, edge) => setSelectedEdgeId(edge.id)}
+                fitView
+              >
+                <MiniMap pannable zoomable />
+                <Controls />
+                <Background gap={18} />
+              </ReactFlow>
+            ) : (
+              <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#475569', padding: 30, textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>No counterexample to visualize</div>
+                <div style={{ marginTop: 8, maxWidth: 420, fontSize: 14 }}>
+                  {hasFailedProperties ? 'Select a failing property to inspect its counterexample.' : 'All checked properties are valid.'}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section
+          style={{
+            background: 'rgba(255,255,255,0.96)',
+            border: '1px solid #e2e8f0',
+            borderRadius: 24,
+            padding: 20,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Failure focus</h2>
+          <p style={{ margin: '8px 0 0', color: '#475569', fontSize: 13 }}>
+            A compact panel focused on what breaks when a property fails.
+          </p>
+
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>Selected state</div>
+            {selectedState ? (
+              <div style={{ marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>State {selectedState.id}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {selectedState.vars.map((item) => (
+                    <div
+                      key={`${selectedState.id}-${item.name}`}
+                      style={{
+                        borderRadius: 12,
+                        background: '#f8fafc',
+                        padding: '8px 10px',
+                        fontSize: 12,
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      <span style={{ fontWeight: 700 }}>{item.name}</span>
+                      <span style={{ color: '#94a3b8', margin: '0 6px' }}>=</span>
+                      <span>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
+                Select a state in the graph.
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 22 }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>Transition changes</div>
+            {selectedEdge ? (
+              <div style={{ marginTop: 10, border: '1px solid #fecaca', borderRadius: 18, background: '#fff1f2', padding: 14 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>
+                  {selectedEdge.source} → {selectedEdge.target}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(selectedEdge.data?.changes ?? []).length === 0 ? (
+                    <div style={{ fontStyle: 'italic', color: '#64748b', fontSize: 12 }}>
+                      No variable changes in this transition.
+                    </div>
+                  ) : (
+                    selectedEdge.data.changes.map((item) => (
+                      <div
+                        key={`${selectedEdge.id}-${item.name}`}
+                        style={{
+                          borderRadius: 12,
+                          background: '#fff',
+                          padding: '8px 10px',
+                          fontSize: 12,
+                          border: '1px solid #fda4af',
+                        }}
+                      >
+                        <div style={{ fontWeight: 800 }}>{item.name}</div>
+                        <div style={{ marginTop: 4, color: '#334155' }}>
+                          {item.from} → {item.to}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
+                Select a transition in the graph.
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 22 }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>Trace steps</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10, maxHeight: 430, overflow: 'auto' }}>
+              {traceSteps.length === 0 ? (
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
+                  No trace available for the selected property.
+                </div>
+              ) : (
+                traceSteps.map(({ state, nextState, changes }) => (
+                  <div key={state.id} style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
+                    <div style={{ fontSize: 15, fontWeight: 800 }}>State {state.id}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                      {state.vars.map((item) => (
+                        <div
+                          key={`${state.id}-${item.name}`}
+                          style={{
+                            borderRadius: 12,
+                            background: '#f8fafc',
+                            padding: '8px 10px',
+                            fontSize: 12,
+                            border: '1px solid #e2e8f0',
+                          }}
+                        >
+                          <span style={{ fontWeight: 700 }}>{item.name}</span>
+                          <span style={{ color: '#94a3b8', margin: '0 6px' }}>=</span>
+                          <span>{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {nextState && (
+                      <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: '#eef2ff', border: '1px solid #c7d2fe' }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8, color: '#312e81' }}>
+                          Transition {state.id} → {nextState.id}
+                        </div>
+                        {changes.length === 0 ? (
+                          <div style={{ fontSize: 12, color: '#475569' }}>No variable changes</div>
+                        ) : (
+                          changes.map((item) => (
+                            <div
+                              key={`${state.id}-${nextState.id}-${item.name}`}
+                              style={{
+                                borderRadius: 12,
+                                background: '#fff',
+                                padding: '8px 10px',
+                                fontSize: 12,
+                                border: '1px solid #c7d2fe',
+                                marginTop: 8,
+                              }}
+                            >
+                              <div style={{ fontWeight: 800 }}>{item.name}</div>
+                              <div style={{ marginTop: 4, color: '#334155' }}>
+                                {item.from} → {item.to}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </section>
       </div>
