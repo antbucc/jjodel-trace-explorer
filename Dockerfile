@@ -22,15 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and install nuXmv
-
 RUN mkdir -p /opt/nuxmv \
-    && which curl \
-    && curl --version \
     && curl -fL "https://nuxmv.fbk.eu/theme/download.php?file=nuXmv-2.1.0-linux64.tar.xz" -o /tmp/nuxmv.tar.xz \
-    && ls -lh /tmp/nuxmv.tar.xz \
-    && tar -tJf /tmp/nuxmv.tar.xz | head \
     && tar -xJf /tmp/nuxmv.tar.xz -C /opt/nuxmv --strip-components=1 \
+    && rm /tmp/nuxmv.tar.xz \
     && chmod +x /opt/nuxmv/bin/nuXmv
 
 ENV NUXMV_PATH=/opt/nuxmv/bin/nuXmv
@@ -41,7 +36,5 @@ RUN npm install --omit=dev
 
 COPY server ./server
 COPY --from=builder /app/dist ./dist
-
-EXPOSE 8080
 
 CMD ["node", "server/index.js"]

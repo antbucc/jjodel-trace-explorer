@@ -14,7 +14,7 @@ const app = express()
 const upload = multer({ storage: multer.memoryStorage() })
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true })
+  res.status(200).json({ ok: true })
 })
 
 app.post('/api/verify', upload.single('model'), async (req, res) => {
@@ -40,6 +40,7 @@ app.post('/api/verify', upload.single('model'), async (req, res) => {
 
     return res.json(report)
   } catch (error) {
+    console.error('Verification error:', error)
     return res.status(500).json({
       error: error.message || 'Unexpected verification error.',
     })
@@ -53,8 +54,10 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(distDir, 'index.html'))
 })
 
+const port = Number(process.env.PORT || 8080)
+const host = '0.0.0.0'
 
-const port = process.env.PORT || 8080
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`)
+app.listen(port, host, () => {
+  console.log(`Server listening on http://${host}:${port}`)
+  console.log(`Health endpoint available at /api/health`)
 })
