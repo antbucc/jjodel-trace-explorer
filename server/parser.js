@@ -35,6 +35,8 @@ export function extractPropertiesFromSmv(smvText) {
     })
   }
 
+  console.log('Extracted properties:', properties.map((p) => `${p.id}:${p.type}:${p.formula}`))
+
   return properties
 }
 
@@ -95,7 +97,6 @@ export function parseNuXmvOutput({ smvText, stdout, stderr, fileName }) {
     const statusEntry = statusEntries[index]
     return {
       ...property,
-      formula: property.formula,
       status: statusEntry?.status ?? 'unknown',
     }
   })

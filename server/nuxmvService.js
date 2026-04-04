@@ -11,6 +11,9 @@ export async function runNuXmv({ modelContent, fileName }) {
   try {
     await writeFile(modelPath, modelContent, 'utf8')
 
+    console.log('Running nuXmv from:', binary)
+    console.log('Temporary model path:', modelPath)
+
     const output = await new Promise((resolve, reject) => {
       const child = spawn(binary, [modelPath], {
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -36,6 +39,7 @@ export async function runNuXmv({ modelContent, fileName }) {
       })
 
       child.on('close', (code) => {
+        console.log('nuXmv exit code:', code)
         resolve({ code, stdout, stderr })
       })
     })

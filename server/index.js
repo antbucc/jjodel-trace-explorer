@@ -1,3 +1,4 @@
+
 import express from 'express'
 import multer from 'multer'
 import path from 'node:path'
@@ -25,6 +26,9 @@ app.post('/api/verify', upload.single('model'), async (req, res) => {
 
     const smvText = req.file.buffer.toString('utf8')
     const fileName = req.file.originalname || 'model.smv'
+
+    console.log('Received file:', fileName)
+    console.log('SMV size:', smvText.length)
 
     const result = await runNuXmv({
       modelContent: smvText,
