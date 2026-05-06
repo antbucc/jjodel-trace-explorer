@@ -278,14 +278,6 @@ export default function TraceVisualizer() {
     [edges, selectedEdgeId]
   )
 
-  const traceSteps = useMemo(() => {
-    return traceStates.map((state, index) => ({
-      state,
-      nextState: traceStates[index + 1] ?? null,
-      changes: traceStates[index + 1] ? changedVariables(state, traceStates[index + 1]) : [],
-    }))
-  }, [traceStates])
-
   const handleSmvUpload = useCallback(async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -507,13 +499,124 @@ export default function TraceVisualizer() {
         <div style={{ marginTop: 6, fontSize: 14, fontWeight: 700 }}>{checkFeedback}</div>
       </div>
 
+      <details
+        style={{
+          maxWidth: 1700,
+          margin: '0 auto 16px',
+          background: 'rgba(255,255,255,0.96)',
+          border: '1px solid #e2e8f0',
+          borderRadius: 18,
+          boxShadow: '0 10px 30px rgba(15,23,42,0.06)',
+          overflow: 'hidden',
+        }}
+      >
+        <summary
+          style={{
+            cursor: 'pointer',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            fontSize: 13,
+            color: '#0f172a',
+            listStyle: 'none',
+            flexWrap: 'wrap',
+          }}
+        >
+          <span style={{ textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 11, color: '#64748b', fontWeight: 700 }}>
+            Input model
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 800 }}>{smvFileName}</span>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+            Engine: <strong style={{ color: '#0f172a' }}>{report?.engine ?? 'nuXmv'}</strong>
+            {' · '}Source: <strong style={{ color: '#0f172a' }}>{report?.source ?? 'Jjodel'}</strong>
+            {' · '}Generated: <strong style={{ color: '#0f172a' }}>{report?.generatedAt ?? '-'}</strong>
+          </span>
+        </summary>
+        <div style={{ borderTop: '1px solid #e2e8f0', background: '#0f172a' }}>
+          <pre
+            style={{
+              margin: 0,
+              padding: 16,
+              maxHeight: 320,
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              color: '#e2e8f0',
+              fontSize: 12,
+              lineHeight: 1.55,
+              fontFamily: 'ui-monospace, Menlo, monospace',
+            }}
+          >
+            {smvText || 'No model loaded.'}
+          </pre>
+        </div>
+      </details>
+
+      <div
+        style={{
+          maxWidth: 1700,
+          margin: '0 auto 18px',
+          background: 'rgba(255,255,255,0.96)',
+          border: '1px solid #e2e8f0',
+          borderRadius: 18,
+          padding: 14,
+          boxShadow: '0 10px 30px rgba(15,23,42,0.06)',
+          display: 'flex',
+          gap: 20,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', gap: 22, flex: 1, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
+              Total
+            </div>
+            <div style={{ marginTop: 2, fontSize: 22, fontWeight: 800 }}>{summary.totalProperties}</div>
+          </div>
+          <div>
+            <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
+              Passed
+            </div>
+            <div style={{ marginTop: 2, fontSize: 22, fontWeight: 800, color: '#15803d' }}>{summary.passed}</div>
+          </div>
+          <div>
+            <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
+              Failed
+            </div>
+            <div style={{ marginTop: 2, fontSize: 22, fontWeight: 800, color: '#b91c1c' }}>{summary.failed}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {['all', 'passed', 'failed'].map((value) => (
+            <button
+              key={value}
+              onClick={() => setPropertyFilter(value)}
+              style={{
+                border: '1px solid #cbd5e1',
+                background: propertyFilter === value ? '#eef2ff' : '#fff',
+                color: propertyFilter === value ? '#312e81' : '#334155',
+                borderRadius: 999,
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              {value.charAt(0).toUpperCase() + value.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div
         style={{
           maxWidth: 1700,
           margin: '0 auto',
           display: 'grid',
-          gridTemplateColumns: '380px minmax(780px, 1fr) 300px',
+          gridTemplateColumns: 'minmax(360px, 1fr) minmax(560px, 1.2fr)',
           gap: 20,
+          alignItems: 'start',
         }}
       >
         <section
@@ -525,130 +628,14 @@ export default function TraceVisualizer() {
             boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Input model</h2>
-          <p style={{ margin: '8px 0 0', color: '#475569', fontSize: 13 }}>
-            The SMV model is loaded from file and displayed here exactly as submitted.
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
-            {[
-              ['File', smvFileName],
-              ['Source', report?.source ?? 'Jjodel'],
-              ['Engine', report?.engine ?? 'nuXmv'],
-              ['Generated', report?.generatedAt ?? '-'],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}
-              >
-                <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
-                  {label}
-                </div>
-                <div style={{ marginTop: 4, fontSize: 14, fontWeight: 700, wordBreak: 'break-word' }}>{value}</div>
-              </div>
-            ))}
+          <div>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Verification results</h2>
+            <p style={{ margin: '6px 0 0', color: '#475569', fontSize: 13 }}>
+              Click a property to expand or collapse. Failed properties open by default; the counterexample graph stays in view on the right.
+            </p>
           </div>
 
-          <div
-            style={{
-              marginTop: 16,
-              border: '1px solid #dbe3ef',
-              borderRadius: 18,
-              overflow: 'hidden',
-              background: '#0f172a',
-            }}
-          >
-            <div
-              style={{
-                padding: '10px 14px',
-                fontSize: 12,
-                fontWeight: 700,
-                color: '#cbd5e1',
-                background: '#1e293b',
-              }}
-            >
-              {smvFileName}
-            </div>
-            <pre
-              style={{
-                margin: 0,
-                padding: 16,
-                maxHeight: 520,
-                overflow: 'auto',
-                whiteSpace: 'pre-wrap',
-                color: '#e2e8f0',
-                fontSize: 12,
-                lineHeight: 1.55,
-                fontFamily: 'ui-monospace, Menlo, monospace',
-              }}
-            >
-              {smvText || 'No model loaded.'}
-            </pre>
-          </div>
-        </section>
-
-        <section
-          style={{
-            background: 'rgba(255,255,255,0.96)',
-            border: '1px solid #e2e8f0',
-            borderRadius: 24,
-            overflow: 'hidden',
-            boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
-          }}
-        >
-          <div style={{ padding: 20, borderBottom: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Verification results</h2>
-                <p style={{ margin: '8px 0 0', color: '#475569', fontSize: 13 }}>
-                  Clear feedback on passing and failing properties, with a focused view on the properties that break the model.
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {['all', 'passed', 'failed'].map((value) => (
-                  <button
-                    key={value}
-                    onClick={() => setPropertyFilter(value)}
-                    style={{
-                      border: '1px solid #cbd5e1',
-                      background: propertyFilter === value ? '#eef2ff' : '#fff',
-                      color: propertyFilter === value ? '#312e81' : '#334155',
-                      borderRadius: 999,
-                      padding: '8px 12px',
-                      cursor: 'pointer',
-                      fontSize: 12,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {value.charAt(0).toUpperCase() + value.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 16 }}>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
-                <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
-                  Total properties
-                </div>
-                <div style={{ marginTop: 4, fontSize: 28, fontWeight: 800 }}>{summary.totalProperties}</div>
-              </div>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
-                <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
-                  Passed
-                </div>
-                <div style={{ marginTop: 4, fontSize: 28, fontWeight: 800, color: '#15803d' }}>{summary.passed}</div>
-              </div>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
-                <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
-                  Failed
-                </div>
-                <div style={{ marginTop: 4, fontSize: 28, fontWeight: 800, color: '#b91c1c' }}>{summary.failed}</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
                 Properties ({filteredProperties.length})
               </div>
@@ -842,15 +829,29 @@ export default function TraceVisualizer() {
                 </div>
               )}
             </div>
-          </div>
+        </section>
 
-          <div style={{ padding: '14px 18px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <section
+          style={{
+            position: 'sticky',
+            top: 16,
+            background: 'rgba(255,255,255,0.96)',
+            border: '1px solid #e2e8f0',
+            borderRadius: 24,
+            overflow: 'hidden',
+            boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
+            maxHeight: 'calc(100vh - 32px)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
             {selectedProperty?.status === 'failed' && traceStates.length > 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
                   Counterexample for{' '}
-                  <strong style={{ color: '#0f172a' }}>{selectedProperty.id}</strong>
-                </span>
+                  <span style={{ color: '#4338ca' }}>{selectedProperty.id}</span>
+                </h2>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 999, background: '#f1f5f9', border: '1px solid #e2e8f0' }}>
                   <button
                     onClick={goToPrevState}
@@ -890,24 +891,24 @@ export default function TraceVisualizer() {
                 </span>
               </div>
             ) : (
-              <div style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>
-                Select a failing property above to inspect its counterexample.
-              </div>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#475569' }}>
+                Counterexample
+              </h2>
             )}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button onClick={handleAutoLayout} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '8px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#334155' }}>
-                Fit graph
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button onClick={handleAutoLayout} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '6px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#334155' }}>
+                Fit
               </button>
-              <button onClick={handleZoomIn} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '8px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#334155' }}>
-                Zoom in
+              <button onClick={handleZoomIn} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '6px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#334155' }}>
+                +
               </button>
-              <button onClick={handleZoomOut} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '8px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#334155' }}>
-                Zoom out
+              <button onClick={handleZoomOut} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '6px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#334155' }}>
+                −
               </button>
             </div>
           </div>
 
-          <div style={{ height: 660, margin: 18, border: '1px solid #e2e8f0', borderRadius: 20, overflow: 'hidden', background: '#fff' }}>
+          <div style={{ height: 460, margin: '14px 14px 0', border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', background: '#fff', flexShrink: 0 }}>
             {selectedProperty?.status === 'failed' && traceStates.length > 0 ? (
               <ReactFlow
                 nodes={nodes}
@@ -940,119 +941,31 @@ export default function TraceVisualizer() {
               </ReactFlow>
             ) : (
               <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#475569', padding: 30, textAlign: 'center' }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>No counterexample to visualize</div>
-                <div style={{ marginTop: 8, maxWidth: 420, fontSize: 14 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>No counterexample to visualize</div>
+                <div style={{ marginTop: 8, maxWidth: 420, fontSize: 13 }}>
                   {hasFailedProperties ? 'Select a failing property to inspect its counterexample.' : 'All checked properties are valid.'}
                 </div>
               </div>
             )}
           </div>
-        </section>
 
-        <section
-          style={{
-            background: 'rgba(255,255,255,0.96)',
-            border: '1px solid #e2e8f0',
-            borderRadius: 24,
-            padding: 20,
-            boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Failure focus</h2>
-          <p style={{ margin: '8px 0 0', color: '#475569', fontSize: 13 }}>
-            A compact panel focused on what breaks when a property fails.
-          </p>
-
-          <div style={{ marginTop: 18 }}>
-            <div style={{ fontSize: 16, fontWeight: 800 }}>Selected state</div>
-            {selectedState ? (
-              <div style={{ marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>State {selectedState.id}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {selectedState.vars.map((item) => (
-                    <div
-                      key={`${selectedState.id}-${item.name}`}
-                      style={{
-                        borderRadius: 12,
-                        background: '#f8fafc',
-                        padding: '8px 10px',
-                        fontSize: 12,
-                        border: '1px solid #e2e8f0',
-                      }}
-                    >
-                      <span style={{ fontWeight: 700 }}>{item.name}</span>
-                      <span style={{ color: '#94a3b8', margin: '0 6px' }}>=</span>
-                      <span>{item.value}</span>
-                    </div>
-                  ))}
+          <div style={{ padding: 14, overflow: 'auto', flex: 1, minHeight: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                  Selected state
                 </div>
-              </div>
-            ) : (
-              <div style={{ marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
-                Select a state in the graph.
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginTop: 22 }}>
-            <div style={{ fontSize: 16, fontWeight: 800 }}>Transition changes</div>
-            {selectedEdge ? (
-              <div style={{ marginTop: 10, border: '1px solid #fecaca', borderRadius: 18, background: '#fff1f2', padding: 14 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>
-                  {selectedEdge.source} → {selectedEdge.target}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(selectedEdge.data?.changes ?? []).length === 0 ? (
-                    <div style={{ fontStyle: 'italic', color: '#64748b', fontSize: 12 }}>
-                      No variable changes in this transition.
-                    </div>
-                  ) : (
-                    selectedEdge.data.changes.map((item) => (
-                      <div
-                        key={`${selectedEdge.id}-${item.name}`}
-                        style={{
-                          borderRadius: 12,
-                          background: '#fff',
-                          padding: '8px 10px',
-                          fontSize: 12,
-                          border: '1px solid #fda4af',
-                        }}
-                      >
-                        <div style={{ fontWeight: 800 }}>{item.name}</div>
-                        <div style={{ marginTop: 4, color: '#334155' }}>
-                          {item.from} → {item.to}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div style={{ marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
-                Select a transition in the graph.
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginTop: 22 }}>
-            <div style={{ fontSize: 16, fontWeight: 800 }}>Trace steps</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10, maxHeight: 430, overflow: 'auto' }}>
-              {traceSteps.length === 0 ? (
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
-                  No trace available for the selected property.
-                </div>
-              ) : (
-                traceSteps.map(({ state, nextState, changes }) => (
-                  <div key={state.id} style={{ border: '1px solid #e2e8f0', borderRadius: 18, background: '#fff', padding: 14 }}>
-                    <div style={{ fontSize: 15, fontWeight: 800 }}>State {state.id}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                      {state.vars.map((item) => (
+                {selectedState ? (
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, background: '#fff', padding: 12 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>State {selectedState.id}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {selectedState.vars.map((item) => (
                         <div
-                          key={`${state.id}-${item.name}`}
+                          key={`${selectedState.id}-${item.name}`}
                           style={{
-                            borderRadius: 12,
+                            borderRadius: 10,
                             background: '#f8fafc',
-                            padding: '8px 10px',
+                            padding: '6px 8px',
                             fontSize: 12,
                             border: '1px solid #e2e8f0',
                           }}
@@ -1063,39 +976,55 @@ export default function TraceVisualizer() {
                         </div>
                       ))}
                     </div>
-
-                    {nextState && (
-                      <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: '#eef2ff', border: '1px solid #c7d2fe' }}>
-                        <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8, color: '#312e81' }}>
-                          Transition {state.id} → {nextState.id}
-                        </div>
-                        {changes.length === 0 ? (
-                          <div style={{ fontSize: 12, color: '#475569' }}>No variable changes</div>
-                        ) : (
-                          changes.map((item) => (
-                            <div
-                              key={`${state.id}-${nextState.id}-${item.name}`}
-                              style={{
-                                borderRadius: 12,
-                                background: '#fff',
-                                padding: '8px 10px',
-                                fontSize: 12,
-                                border: '1px solid #c7d2fe',
-                                marginTop: 8,
-                              }}
-                            >
-                              <div style={{ fontWeight: 800 }}>{item.name}</div>
-                              <div style={{ marginTop: 4, color: '#334155' }}>
-                                {item.from} → {item.to}
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
                   </div>
-                ))
-              )}
+                ) : (
+                  <div style={{ border: '1px dashed #cbd5e1', borderRadius: 14, padding: 12, color: '#64748b', fontSize: 12 }}>
+                    Click a state in the graph or use ← / → above.
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                  Transition changes
+                </div>
+                {selectedEdge ? (
+                  <div style={{ border: '1px solid #fecaca', borderRadius: 14, background: '#fff1f2', padding: 12 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>
+                      {selectedEdge.source} → {selectedEdge.target}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {(selectedEdge.data?.changes ?? []).length === 0 ? (
+                        <div style={{ fontStyle: 'italic', color: '#64748b', fontSize: 12 }}>
+                          No variable changes in this transition.
+                        </div>
+                      ) : (
+                        selectedEdge.data.changes.map((item) => (
+                          <div
+                            key={`${selectedEdge.id}-${item.name}`}
+                            style={{
+                              borderRadius: 10,
+                              background: '#fff',
+                              padding: '6px 8px',
+                              fontSize: 12,
+                              border: '1px solid #fda4af',
+                            }}
+                          >
+                            <div style={{ fontWeight: 800 }}>{item.name}</div>
+                            <div style={{ marginTop: 2, color: '#334155' }}>
+                              {item.from} → {item.to}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ border: '1px dashed #cbd5e1', borderRadius: 14, padding: 12, color: '#64748b', fontSize: 12 }}>
+                    Click an edge in the graph to inspect a transition.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </section>
