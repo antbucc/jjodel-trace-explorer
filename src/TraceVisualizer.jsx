@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Background,
@@ -164,6 +163,42 @@ function StateNode({ data }) {
 
 const nodeTypes = { stateNode: StateNode }
 
+function PropertyTypeBadge({ type }) {
+  return (
+    <span
+      style={{
+        borderRadius: 999,
+        padding: '4px 8px',
+        fontSize: 11,
+        fontWeight: 800,
+        background: '#eef2ff',
+        color: '#312e81',
+      }}
+    >
+      {type || 'UNKNOWN'}
+    </span>
+  )
+}
+
+function StatusBadge({ status }) {
+  const passed = status === 'passed'
+  return (
+    <span
+      style={{
+        borderRadius: 999,
+        padding: '5px 10px',
+        fontSize: 12,
+        fontWeight: 800,
+        background: passed ? '#dcfce7' : '#fee2e2',
+        color: passed ? '#166534' : '#991b1b',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {passed ? 'Passed' : 'Failed'}
+    </span>
+  )
+}
+
 export default function TraceVisualizer() {
   const reactFlowRef = useRef(null)
 
@@ -176,6 +211,7 @@ export default function TraceVisualizer() {
   const [selectedPropertyId, setSelectedPropertyId] = useState(null)
   const [selectedEdgeId, setSelectedEdgeId] = useState(null)
   const [selectedStateId, setSelectedStateId] = useState(null)
+  const [expandedProperties, setExpandedProperties] = useState(() => new Set())
 
   const filteredProperties = useMemo(() => {
     if (!report) return []
@@ -203,6 +239,17 @@ export default function TraceVisualizer() {
     setSelectedStateId(graph.nodes[0]?.id ?? null)
     setSelectedEdgeId(graph.edges[0]?.id ?? null)
   }, [graph, setNodes, setEdges])
+
+  useEffect(() => {
+    if (!report) {
+      setExpandedProperties(new Set())
+      return
+    }
+    const failedIds = report.properties
+      .filter((property) => property.status === 'failed')
+      .map((property) => property.id)
+    setExpandedProperties(new Set(failedIds))
+  }, [report])
 
   useEffect(() => {
     if (!reactFlowRef.current) return
@@ -247,8 +294,6 @@ export default function TraceVisualizer() {
 
     setSmvText(text)
     setSmvFileName(file.name)
-
-    // Clear old results
     setReport(null)
     setSelectedPropertyId(null)
     setSelectedStateId(null)
@@ -307,6 +352,40 @@ export default function TraceVisualizer() {
     a.click()
     URL.revokeObjectURL(url)
   }, [report])
+
+  const togglePropertyExpansion = useCallback((id) => {
+    setExpandedProperties((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const expandAllProperties = useCallback(() => {
+    setExpandedProperties(new Set(filteredProperties.map((property) => property.id)))
+  }, [filteredProperties])
+
+  const collapseAllProperties = useCallback(() => {
+    setExpandedProperties(new Set())
+  }, [])
+
+  const currentStateIndex = useMemo(
+    () => traceStates.findIndex((state) => state.id === selectedStateId),
+    [traceStates, selectedStateId]
+  )
+
+  const goToPrevState = useCallback(() => {
+    if (currentStateIndex > 0) {
+      setSelectedStateId(traceStates[currentStateIndex - 1].id)
+    }
+  }, [currentStateIndex, traceStates])
+
+  const goToNextState = useCallback(() => {
+    if (currentStateIndex >= 0 && currentStateIndex < traceStates.length - 1) {
+      setSelectedStateId(traceStates[currentStateIndex + 1].id)
+    }
+  }, [currentStateIndex, traceStates])
 
   const handleAutoLayout = useCallback(() => {
     if (!reactFlowRef.current) return
@@ -569,114 +648,252 @@ export default function TraceVisualizer() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginTop: 18 }}>
-              {filteredProperties.map((property) => (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                Properties ({filteredProperties.length})
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
                 <button
-                  key={property.id}
-                  onClick={() => setSelectedPropertyId(property.id)}
+                  onClick={expandAllProperties}
+                  disabled={filteredProperties.length === 0}
                   style={{
-                    border: selectedPropertyId === property.id ? '1px solid #4338ca' : '1px solid #e2e8f0',
-                    boxShadow: selectedPropertyId === property.id ? '0 0 0 3px rgba(67,56,202,0.12)' : 'none',
+                    border: '1px solid #cbd5e1',
                     background: '#fff',
-                    borderRadius: 16,
-                    padding: '12px 14px',
-                    cursor: 'pointer',
-                    textAlign: 'left',
+                    color: '#334155',
+                    borderRadius: 999,
+                    padding: '5px 10px',
+                    cursor: filteredProperties.length === 0 ? 'not-allowed' : 'pointer',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    opacity: filteredProperties.length === 0 ? 0.5 : 1,
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 800 }}>{property.id}</span>
-                      <span style={{ borderRadius: 999, padding: '4px 8px', fontSize: 11, fontWeight: 800, background: '#eef2ff', color: '#312e81' }}>
-                        {property.type}
-                      </span>
-                    </div>
-                    <span
-                      style={{
-                        borderRadius: 999,
-                        padding: '5px 10px',
-                        fontSize: 12,
-                        fontWeight: 800,
-                        background: property.status === 'passed' ? '#dcfce7' : '#fee2e2',
-                        color: property.status === 'passed' ? '#166534' : '#991b1b',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {property.status === 'passed' ? 'Passed' : 'Failed'}
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      marginTop: 10,
-                      fontFamily: 'ui-monospace, Menlo, monospace',
-                      fontSize: 12,
-                      color: '#1e293b',
-                      wordBreak: 'break-word',
-                    }}
-                  >
-                    {property.formula}
-                  </div>
+                  Expand all
                 </button>
-              ))}
+                <button
+                  onClick={collapseAllProperties}
+                  disabled={expandedProperties.size === 0}
+                  style={{
+                    border: '1px solid #cbd5e1',
+                    background: '#fff',
+                    color: '#334155',
+                    borderRadius: 999,
+                    padding: '5px 10px',
+                    cursor: expandedProperties.size === 0 ? 'not-allowed' : 'pointer',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    opacity: expandedProperties.size === 0 ? 0.5 : 1,
+                  }}
+                >
+                  Collapse all
+                </button>
+              </div>
             </div>
 
-            {selectedProperty && (
-              <div
-                style={{
-                  marginTop: 18,
-                  border: `2px solid ${selectedProperty.status === 'failed' ? '#fecaca' : '#bbf7d0'}`,
-                  borderRadius: 18,
-                  background: selectedProperty.status === 'failed' ? '#fff1f2' : '#f0fdf4',
-                  padding: 14,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontSize: 16, fontWeight: 800 }}>
-                      {selectedProperty.id} — {selectedProperty.type}
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 8,
-                        fontFamily: 'ui-monospace, Menlo, monospace',
-                        fontSize: 12,
-                        color: '#1e293b',
-                      }}
-                    >
-                      {selectedProperty.formula}
-                    </div>
-                  </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {filteredProperties.map((property) => {
+                const isExpanded = expandedProperties.has(property.id)
+                const isSelected = selectedPropertyId === property.id
+                const isFailed = property.status === 'failed'
+                const counterexampleLength = property.counterexample?.states?.length ?? 0
+
+                return (
                   <div
+                    key={property.id}
                     style={{
-                      borderRadius: 999,
-                      padding: '5px 10px',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      background: selectedProperty.status === 'passed' ? '#dcfce7' : '#fee2e2',
-                      color: selectedProperty.status === 'passed' ? '#166534' : '#991b1b',
+                      border: isSelected ? '1px solid #4338ca' : '1px solid #e2e8f0',
+                      boxShadow: isSelected ? '0 0 0 3px rgba(67,56,202,0.12)' : 'none',
+                      background: '#fff',
+                      borderRadius: 14,
+                      overflow: 'hidden',
                     }}
                   >
-                    {selectedProperty.status === 'passed' ? 'Passed' : 'Failed'}
-                  </div>
-                </div>
+                    <button
+                      onClick={() => togglePropertyExpansion(property.id)}
+                      aria-expanded={isExpanded}
+                      style={{
+                        width: '100%',
+                        border: 0,
+                        background: isFailed ? '#fff5f5' : '#f7fdf9',
+                        padding: '10px 14px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 10,
+                        textAlign: 'left',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            display: 'inline-block',
+                            fontSize: 11,
+                            color: '#475569',
+                            transition: 'transform 0.15s ease',
+                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                          }}
+                        >
+                          ▶
+                        </span>
+                        <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>{property.id}</span>
+                        <PropertyTypeBadge type={property.type} />
+                        {isFailed && counterexampleLength > 0 && (
+                          <span
+                            style={{
+                              borderRadius: 999,
+                              padding: '3px 8px',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              background: '#fee2e2',
+                              color: '#991b1b',
+                            }}
+                          >
+                            {counterexampleLength} state{counterexampleLength !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                      <StatusBadge status={property.status} />
+                    </button>
 
-                <div style={{ marginTop: 8, fontSize: 13, color: '#475569' }}>
-                  {selectedProperty.description || 'No description provided.'}
-                </div>
+                    {isExpanded && (
+                      <div style={{ padding: 14, borderTop: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          Formula
+                        </div>
+                        <div
+                          style={{
+                            marginTop: 6,
+                            fontFamily: 'ui-monospace, Menlo, monospace',
+                            fontSize: 12,
+                            color: '#1e293b',
+                            wordBreak: 'break-word',
+                            whiteSpace: 'pre-wrap',
+                          }}
+                        >
+                          {property.formula || 'No formula available'}
+                        </div>
 
-                {selectedProperty.status === 'failed' && (
-                  <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: '#991b1b' }}>
-                    This property fails. The counterexample below shows how the model reaches a violating execution path.
+                        {property.description && (
+                          <div style={{ marginTop: 10, fontSize: 13, color: '#475569' }}>
+                            {property.description}
+                          </div>
+                        )}
+
+                        {isFailed ? (
+                          <div
+                            style={{
+                              marginTop: 12,
+                              padding: 10,
+                              borderRadius: 12,
+                              background: '#fff1f2',
+                              border: '1px solid #fecaca',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: 10,
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <div style={{ fontSize: 13, color: '#991b1b' }}>
+                              <strong>Counterexample:</strong> {counterexampleLength} state{counterexampleLength !== 1 ? 's' : ''} leading to violation.
+                            </div>
+                            <button
+                              onClick={() => setSelectedPropertyId(property.id)}
+                              style={{
+                                border: 0,
+                                background: isSelected ? '#312e81' : '#4f46e5',
+                                color: '#fff',
+                                borderRadius: 999,
+                                padding: '6px 12px',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {isSelected ? 'Showing in graph' : 'Show in graph'}
+                            </button>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              marginTop: 12,
+                              padding: 10,
+                              borderRadius: 12,
+                              background: '#f0fdf4',
+                              border: '1px solid #bbf7d0',
+                              fontSize: 13,
+                              color: '#166534',
+                            }}
+                          >
+                            Property holds for all reachable states.
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            )}
+                )
+              })}
+
+              {filteredProperties.length === 0 && (
+                <div style={{ border: '1px dashed #cbd5e1', borderRadius: 14, padding: 16, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+                  No properties match the current filter.
+                </div>
+              )}
+            </div>
           </div>
 
-          <div style={{ padding: '0 18px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>
-              Use the controls below to center the counterexample and keep the graph readable.
-            </div>
+          <div style={{ padding: '14px 18px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {selectedProperty?.status === 'failed' && traceStates.length > 0 ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>
+                  Counterexample for{' '}
+                  <strong style={{ color: '#0f172a' }}>{selectedProperty.id}</strong>
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 999, background: '#f1f5f9', border: '1px solid #e2e8f0' }}>
+                  <button
+                    onClick={goToPrevState}
+                    disabled={currentStateIndex <= 0}
+                    style={{
+                      border: 0,
+                      background: 'transparent',
+                      color: currentStateIndex <= 0 ? '#cbd5e1' : '#334155',
+                      cursor: currentStateIndex <= 0 ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      padding: '2px 6px',
+                    }}
+                    aria-label="Previous state"
+                  >
+                    ←
+                  </button>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#312e81', minWidth: 84, textAlign: 'center' }}>
+                    Step {currentStateIndex >= 0 ? currentStateIndex + 1 : 1} of {traceStates.length}
+                  </span>
+                  <button
+                    onClick={goToNextState}
+                    disabled={currentStateIndex < 0 || currentStateIndex >= traceStates.length - 1}
+                    style={{
+                      border: 0,
+                      background: 'transparent',
+                      color: currentStateIndex < 0 || currentStateIndex >= traceStates.length - 1 ? '#cbd5e1' : '#334155',
+                      cursor: currentStateIndex < 0 || currentStateIndex >= traceStates.length - 1 ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      padding: '2px 6px',
+                    }}
+                    aria-label="Next state"
+                  >
+                    →
+                  </button>
+                </span>
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>
+                Select a failing property above to inspect its counterexample.
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button onClick={handleAutoLayout} style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '8px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#334155' }}>
                 Fit graph
