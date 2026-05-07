@@ -181,7 +181,11 @@ function PropertyTypeBadge({ type }) {
 }
 
 function StatusBadge({ status }) {
-  const passed = status === 'passed'
+  const palette = {
+    passed: { bg: '#dcfce7', fg: '#166534', label: 'Passed' },
+    failed: { bg: '#fee2e2', fg: '#991b1b', label: 'Failed' },
+  }
+  const { bg, fg, label } = palette[status] ?? { bg: '#f1f5f9', fg: '#475569', label: 'Unknown' }
   return (
     <span
       style={{
@@ -189,12 +193,12 @@ function StatusBadge({ status }) {
         padding: '5px 10px',
         fontSize: 12,
         fontWeight: 800,
-        background: passed ? '#dcfce7' : '#fee2e2',
-        color: passed ? '#166534' : '#991b1b',
+        background: bg,
+        color: fg,
         whiteSpace: 'nowrap',
       }}
     >
-      {passed ? 'Passed' : 'Failed'}
+      {label}
     </span>
   )
 }
@@ -586,6 +590,16 @@ export default function TraceVisualizer() {
             </div>
             <div style={{ marginTop: 2, fontSize: 22, fontWeight: 800, color: '#b91c1c' }}>{summary.failed}</div>
           </div>
+          {Math.max(0, summary.totalProperties - summary.passed - summary.failed) > 0 && (
+            <div>
+              <div style={{ textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', fontSize: 11 }}>
+                Unknown
+              </div>
+              <div style={{ marginTop: 2, fontSize: 22, fontWeight: 800, color: '#475569' }}>
+                {summary.totalProperties - summary.passed - summary.failed}
+              </div>
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {['all', 'passed', 'failed'].map((value) => (
@@ -701,7 +715,12 @@ export default function TraceVisualizer() {
                       style={{
                         width: '100%',
                         border: 0,
-                        background: isFailed ? '#fff5f5' : '#f7fdf9',
+                        background:
+                          property.status === 'failed'
+                            ? '#fff5f5'
+                            : property.status === 'passed'
+                            ? '#f7fdf9'
+                            : '#f8fafc',
                         padding: '10px 14px',
                         cursor: 'pointer',
                         display: 'flex',
@@ -768,7 +787,7 @@ export default function TraceVisualizer() {
                           </div>
                         )}
 
-                        {isFailed ? (
+                        {property.status === 'failed' ? (
                           <div
                             style={{
                               marginTop: 12,
@@ -802,7 +821,7 @@ export default function TraceVisualizer() {
                               {isSelected ? 'Showing in graph' : 'Show in graph'}
                             </button>
                           </div>
-                        ) : (
+                        ) : property.status === 'passed' ? (
                           <div
                             style={{
                               marginTop: 12,
@@ -815,6 +834,20 @@ export default function TraceVisualizer() {
                             }}
                           >
                             Property holds for all reachable states.
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              marginTop: 12,
+                              padding: 10,
+                              borderRadius: 12,
+                              background: '#f8fafc',
+                              border: '1px solid #cbd5e1',
+                              fontSize: 13,
+                              color: '#475569',
+                            }}
+                          >
+                            <strong>Verification result unavailable.</strong> The model checker did not return a clear pass/fail for this property — typically because its formula could not be matched against nuXmv&apos;s output. Check the engine log or rerun the verification.
                           </div>
                         )}
                       </div>
